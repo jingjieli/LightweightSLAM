@@ -44,8 +44,8 @@ include_directories(
 )
 
 set(PROJECT_SOURCE_FILES  
-  ${PROJECT_SOURCE_DIR}/src/camera/AstraRgbdCamera.cpp
-  ${PROJECT_SOURCE_DIR}/src/camera/OpenNI2Camera.cpp
+  ${PROJECT_SOURCE_DIR}/src/camera/astra_rgbd_camera.cpp
+  ${PROJECT_SOURCE_DIR}/src/camera/openni2_camera.cpp
   ${PROJECT_SOURCE_DIR}/src/main.cpp
 )
 

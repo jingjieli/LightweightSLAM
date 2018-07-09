@@ -1,5 +1,5 @@
-#include "AstraRgbdCamera.h"
-#include "OpenNI2Camera.h"
+#include "astra_rgbd_camera.h"
+#include "openni2_camera.h"
 
 using namespace std;
 using namespace cv;

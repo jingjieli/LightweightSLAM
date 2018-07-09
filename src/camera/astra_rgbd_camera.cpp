@@ -2,7 +2,7 @@
 // Created by Ginger Li on 8/3/2018.
 //
 
-#include "AstraRgbdCamera.h"
+#include "astra_rgbd_camera.h"
 
 AstraRgbdCamera::AstraRgbdCamera()
 {

@@ -1,4 +1,4 @@
-#include "OpenNI2Camera.h"
+#include "openni2_camera.h"
 
 bool OpenNI2Camera::initialize()
 {
