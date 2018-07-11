@@ -1,5 +1,6 @@
 #include "astra_rgbd_camera.h"
 #include "openni2_camera.h"
+#include "system.h"
 
 using namespace std;
 using namespace cv;
@@ -10,6 +11,11 @@ int main(int argc, char** argv)
 
   if (!rgbd_camera->initialize())
     return -1;
+
+  unique_ptr<NaiveSLAM::System> system = unique_ptr<NaiveSLAM::System>(
+    new NaiveSLAM::System());
+
+  int skip_count = 0;
 
   while (true) 
   {
@@ -29,6 +35,15 @@ int main(int argc, char** argv)
 
     if (color_frame.empty() || depth_frame.empty() || vis_depth.empty())
       continue;
+
+    if (skip_count > 30)
+    {
+      system->processImage(color_frame, depth_frame);
+    }
+    else
+    {
+      skip_count++;
+    }
 
     imshow("color frame", color_frame);
     imshow("depth frame", vis_depth);
