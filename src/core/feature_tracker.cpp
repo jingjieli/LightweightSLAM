@@ -4,6 +4,7 @@
 #include "map.h"
 #include "pinhole_camera_model.h"
 #include "g2o_solvers.h"
+#include "viewer.h"
 
 namespace NaiveSLAM
 {
@@ -121,57 +122,57 @@ void FeatureTracker::estimatePose()
   cout << "pts_3d: " << pts_3d.size() << '\n';
   cout << "pts_2d: " << pts_2d.size() << '\n';
 
-  if (pts_3d.size() > 4) // a precondition to call pnp solver
+  if (pts_3d.size() < 4) // a precondition to call pnp solver
+    return;
+
+  solvePnPRansac(pts_3d, pts_2d, K, Mat(), rvec, tvec, false, 100, 4.0, 0.99, inliers);
+
+  num_inliers_ = inliers.rows;
+  cout << "pnp inliers: " << num_inliers_ << '\n';
+
+  T_c_w_pnp_ = SE3(
+      SO3(rvec.at<double>(0, 0), rvec.at<double>(1, 0), rvec.at<double>(2, 0)),
+      Vector3d(tvec.at<double>(0, 0), tvec.at<double>(1, 0), tvec.at<double>(2, 0)));
+
+  cout << "T_c_w_pnp_: " << T_c_w_pnp_.matrix() << '\n';
+
+  using BlockSolver_6_2 = BlockSolver<BlockSolverTraits<6, 2>>;
+  BlockSolver_6_2::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_2::PoseMatrixType>();
+  BlockSolver_6_2 *solver_ptr = new BlockSolver_6_2(linear_solver);
+  OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
+  SparseOptimizer optimizer;
+  optimizer.setAlgorithm(algo);
+  optimizer.setVerbose(true);
+
+  VertexSE3Expmap *pose = new VertexSE3Expmap();
+  pose->setId(0);
+  pose->setEstimate(SE3Quat(
+      T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
+  optimizer.addVertex(pose);
+
+  for (int i = 0; i < inliers.rows; ++i)
   {
-    solvePnPRansac(pts_3d, pts_2d, K, Mat(), rvec, tvec, false, 100, 4.0, 0.99, inliers);
+    auto index = inliers.at<int>(i, 0);
+    EdgeProjectXYZ2UVPoseOnly *edge = new EdgeProjectXYZ2UVPoseOnly();
+    edge->setId(i);
+    edge->setVertex(0, pose);
+    edge->camera_model_ = camera_model_.get();
+    edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z};
+    edge->setMeasurement(Vector2d{pts_2d[index].x, pts_2d[index].y});
+    edge->setInformation(Matrix2d::Identity());
+    optimizer.addEdge(edge);
 
-    num_inliers_ = inliers.rows;
-    cout << "pnp inliers: " << num_inliers_ << '\n';
-
-    T_c_w_pnp_ = SE3(
-        SO3(rvec.at<double>(0, 0), rvec.at<double>(1, 0), rvec.at<double>(2, 0)),
-        Vector3d(tvec.at<double>(0, 0), tvec.at<double>(1, 0), tvec.at<double>(2, 0)));
-
-    cout << "T_c_w_pnp_: " << T_c_w_pnp_.matrix() << '\n';
-
-    using BlockSolver_6_2 = BlockSolver<BlockSolverTraits<6, 2>>;
-    BlockSolver_6_2::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_2::PoseMatrixType>();
-    BlockSolver_6_2 *solver_ptr = new BlockSolver_6_2(linear_solver);
-    OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
-    SparseOptimizer optimizer;
-    optimizer.setAlgorithm(algo);
-    optimizer.setVerbose(true);
-
-    VertexSE3Expmap *pose = new VertexSE3Expmap();
-    pose->setId(0);
-    pose->setEstimate(SE3Quat(
-        T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
-    optimizer.addVertex(pose);
-
-    for (int i = 0; i < inliers.rows; ++i)
-    {
-      auto index = inliers.at<int>(i, 0);
-      EdgeProjectXYZ2UVPoseOnly *edge = new EdgeProjectXYZ2UVPoseOnly();
-      edge->setId(i);
-      edge->setVertex(0, pose);
-      edge->camera_model_ = camera_model_.get();
-      edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z};
-      edge->setMeasurement(Vector2d{pts_2d[index].x, pts_2d[index].y});
-      edge->setInformation(Matrix2d::Identity());
-      optimizer.addEdge(edge);
-
-      local_map_->updateMapPointMatchedTimes(matched_map_pts[index]->getMapPointId());
-    }
-
-    optimizer.initializeOptimization();
-    optimizer.optimize(10);
-
-    T_c_w_estimated_ = SE3(
-        pose->estimate().rotation(),
-        pose->estimate().translation());
-
-    cout << "T_c_w_estimated: " << T_c_w_estimated_.matrix() << '\n';
+    local_map_->updateMapPointMatchedTimes(matched_map_pts[index]->getMapPointId());
   }
+
+  optimizer.initializeOptimization();
+  optimizer.optimize(10);
+
+  T_c_w_estimated_ = SE3(
+      pose->estimate().rotation(),
+      pose->estimate().translation());
+
+  cout << "T_c_w_estimated: " << T_c_w_estimated_.matrix() << '\n';
 }
 
 void FeatureTracker::addKeyFrame()
@@ -336,6 +337,24 @@ bool FeatureTracker::needNewKeyFrame() const
     return true;
 
   return false;
+}
+
+void FeatureTracker::finalizeCurrentFrame()
+{
+  local_map_->finalizeCurrentFrame();
+}
+
+void FeatureTracker::setViewer(Viewer* viewer)
+{
+  viewer_ = viewer;
+}
+
+void FeatureTracker::updateViewer()
+{
+  viewer_->updateCurrentCameraPose(curr_frame_->getTransform());
+  viewer_->updateMapPoints(local_map_->getMapPointsToRender());
+  viewer_->updateKeyFrames(local_map_->getKeyFramesToRender());
+  viewer_->updateTrajectory(local_map_->getTrajectoryToRender());
 }
 
 } // namespace NaiveSLAM

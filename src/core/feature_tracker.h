@@ -9,6 +9,7 @@ class Frame;
 class MapPoint;
 class Map;
 class PinholeCameraModel;
+class Viewer;
 
 class FeatureTracker
 {
@@ -36,6 +37,11 @@ public:
 
   bool needNewKeyFrame() const;
 
+  void finalizeCurrentFrame();
+
+  void setViewer(Viewer* viewer);
+  void updateViewer();
+
 private:
   Ptr<ORB> orb_detector_;
   FlannBasedMatcher flann_matcher_;
@@ -61,6 +67,8 @@ private:
 
   double min_rot_diff_;
   double min_trans_diff_;
+
+  Viewer* viewer_;
 
   double findDepthForPixel(const KeyPoint &point);
   void addMapPoints();

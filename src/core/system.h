@@ -6,6 +6,7 @@ namespace NaiveSLAM
 {
 
 class FeatureTracker;
+class Viewer;
 
 class System
 {
@@ -33,6 +34,7 @@ private:
   STATE system_state_;
 
   unique_ptr<FeatureTracker> feature_tracker_;
+  unique_ptr<Viewer> viewer_;
 };
 
 } // namespace NaiveSLAM

@@ -4,6 +4,8 @@
 #include <vector>
 #include <list>
 #include <unordered_map>
+#include <thread>
+#include <mutex>
 
 #include "sophus/se3.h"
 #include "sophus/so3.h"
@@ -20,6 +22,8 @@
 #include <g2o/solvers/dense/linear_solver_dense.h>
 #include <g2o/core/robust_kernel.h>
 #include <g2o/core/robust_kernel_impl.h>
+
+#include "pangolin/pangolin.h"
 
 using namespace std;
 using namespace Sophus;

@@ -59,6 +59,7 @@ set(PROJECT_SOURCE_FILES
   ${PROJECT_SOURCE_DIR}/src/core/map.cpp
   ${PROJECT_SOURCE_DIR}/src/core/pinhole_camera_model.cpp
   ${PROJECT_SOURCE_DIR}/src/core/g2o_solvers.cpp
+  ${PROJECT_SOURCE_DIR}/src/core/viewer.cpp
   ${PROJECT_SOURCE_DIR}/src/main.cpp
 )
 
