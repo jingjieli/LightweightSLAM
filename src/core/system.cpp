@@ -25,9 +25,7 @@ void System::processImage(const Mat &color_img, const Mat &depth_img)
 
   case STATE::INITIALIZATION:
   {
-    auto new_frame = Frame::createFrame(SE3());
-    feature_tracker_->setCurrentFrame(new_frame);
-    feature_tracker_->setReferenceFrame(new_frame);
+    feature_tracker_->createNewFrame(SE3());
     feature_tracker_->extractFeatures();
     feature_tracker_->addKeyFrame();
     system_state_ = STATE::TRACKING;
@@ -37,8 +35,7 @@ void System::processImage(const Mat &color_img, const Mat &depth_img)
 
   case STATE::TRACKING:
   {
-    auto new_frame = Frame::createFrame(feature_tracker_->getReferenceTransform());
-    feature_tracker_->setCurrentFrame(new_frame);
+    feature_tracker_->createNewFrame(feature_tracker_->getReferenceTransform());
     feature_tracker_->extractFeatures();
     feature_tracker_->matchFeatures();
     feature_tracker_->estimatePose();

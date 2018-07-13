@@ -6,17 +6,18 @@ namespace NaiveSLAM
 {
 
 class Frame;
+class Map;
 
 class MapPoint
 {
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  
+
   MapPoint();
   MapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame);
   ~MapPoint();
-  static shared_ptr<MapPoint> createMapPoint();
-  static shared_ptr<MapPoint> createMapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame);
+
+  static unique_ptr<MapPoint> createMapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame);
   
   unsigned long getMapPointId() const;
   const Vector3d& getPosition() const;

@@ -6,6 +6,7 @@ namespace NaiveSLAM
 {
 
 class MapPoint;
+class Map;
 
 class Frame
 {
@@ -15,8 +16,8 @@ public:
   Frame();
   Frame(const SE3 &T_c_w);
   ~Frame();
-  static shared_ptr<Frame> createFrame();
-  static shared_ptr<Frame> createFrame(const SE3 &T_c_w);
+  
+  static unique_ptr<Frame> createFrame(const SE3 &T_c_w);
 
   unsigned long getFrameId() const;
   SE3 getTransform() const;
@@ -27,8 +28,8 @@ private:
   static unsigned long factory_id_;
   unsigned long frame_id_;
   SE3 T_c_w_; // transform from world to camera
-  vector<KeyPoint> keypoints_;
-  vector<MapPoint> map_points_;
+  vector<KeyPoint*> keypoints_;
+  vector<MapPoint*> map_points_;
 };
 
 } // namespace NaiveSLAM

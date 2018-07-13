@@ -22,14 +22,10 @@ FeatureTracker::~FeatureTracker()
 {
 }
 
-void FeatureTracker::setReferenceFrame(shared_ptr<Frame> frame)
+void FeatureTracker::createNewFrame(const SE3 &T_c_w)
 {
-  ref_frame_ = frame;
-}
-
-void FeatureTracker::setCurrentFrame(shared_ptr<Frame> frame)
-{
-  curr_frame_ = frame;
+  local_map_->createNewFrame(curr_frame_, T_c_w);
+  assert(curr_frame_ != nullptr);
 }
 
 void FeatureTracker::setCurrentImages(const Mat &color_img, const Mat &depth_img)
@@ -52,9 +48,9 @@ void FeatureTracker::matchFeatures()
 
   // select candidates from local map
   Mat map_pts_descriptors;
-  vector<shared_ptr<MapPoint>> candidates;
+  vector<MapPoint *> candidates;
 
-  auto &all_map_pts = local_map_->getMapPoints();
+  const auto &all_map_pts = local_map_->getMapPoints();
 
   cout << "total " << all_map_pts.size() << " map points\n";
 
@@ -65,8 +61,8 @@ void FeatureTracker::matchFeatures()
 
     if (pt_in_frame)
     {
-      ptr->visible_times_++;
-      candidates.emplace_back(ptr);
+      local_map_->updateMapPointVisibility(map_point.first);
+      candidates.emplace_back(ptr.get());
       map_pts_descriptors.push_back(ptr->getDescriptor());
     }
   }
@@ -125,80 +121,81 @@ void FeatureTracker::estimatePose()
   cout << "pts_3d: " << pts_3d.size() << '\n';
   cout << "pts_2d: " << pts_2d.size() << '\n';
 
-  solvePnPRansac(pts_3d, pts_2d, K, Mat(), rvec, tvec, false, 100, 4.0, 0.99, inliers);
-
-  num_inliers_ = inliers.rows;
-  cout << "pnp inliers: " << num_inliers_ << '\n';
-
-  T_c_w_pnp_ = SE3(
-      SO3(rvec.at<double>(0, 0), rvec.at<double>(1, 0), rvec.at<double>(2, 0)),
-      Vector3d(tvec.at<double>(0, 0), tvec.at<double>(1, 0), tvec.at<double>(2, 0)));
-
-  cout << "T_c_w_pnp_: " << T_c_w_pnp_.matrix() << '\n';
-
-  using BlockSolver_6_2 = BlockSolver<BlockSolverTraits<6, 2>>;
-  BlockSolver_6_2::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_2::PoseMatrixType>();
-  BlockSolver_6_2 *solver_ptr = new BlockSolver_6_2(linear_solver);
-  OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
-  SparseOptimizer optimizer;
-  optimizer.setAlgorithm(algo);
-  optimizer.setVerbose(true);
-
-  VertexSE3Expmap *pose = new VertexSE3Expmap();
-  pose->setId(0);
-  pose->setEstimate(SE3Quat(
-      T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
-  optimizer.addVertex(pose);
-
-  for (int i = 0; i < inliers.rows; ++i)
+  if (pts_3d.size() > 4) // a precondition to call pnp solver
   {
-    auto index = inliers.at<int>(i, 0);
-    EdgeProjectXYZ2UVPoseOnly *edge = new EdgeProjectXYZ2UVPoseOnly();
-    edge->setId(i);
-    edge->setVertex(0, pose);
-    edge->camera_model_ = camera_model_.get();
-    edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z};
-    edge->setMeasurement(Vector2d{pts_2d[index].x, pts_2d[index].y});
-    edge->setInformation(Matrix2d::Identity());
-    optimizer.addEdge(edge);
+    solvePnPRansac(pts_3d, pts_2d, K, Mat(), rvec, tvec, false, 100, 4.0, 0.99, inliers);
 
-    matched_map_pts[index]->matched_times_++;
+    num_inliers_ = inliers.rows;
+    cout << "pnp inliers: " << num_inliers_ << '\n';
+
+    T_c_w_pnp_ = SE3(
+        SO3(rvec.at<double>(0, 0), rvec.at<double>(1, 0), rvec.at<double>(2, 0)),
+        Vector3d(tvec.at<double>(0, 0), tvec.at<double>(1, 0), tvec.at<double>(2, 0)));
+
+    cout << "T_c_w_pnp_: " << T_c_w_pnp_.matrix() << '\n';
+
+    using BlockSolver_6_2 = BlockSolver<BlockSolverTraits<6, 2>>;
+    BlockSolver_6_2::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_2::PoseMatrixType>();
+    BlockSolver_6_2 *solver_ptr = new BlockSolver_6_2(linear_solver);
+    OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
+    SparseOptimizer optimizer;
+    optimizer.setAlgorithm(algo);
+    optimizer.setVerbose(true);
+
+    VertexSE3Expmap *pose = new VertexSE3Expmap();
+    pose->setId(0);
+    pose->setEstimate(SE3Quat(
+        T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
+    optimizer.addVertex(pose);
+
+    for (int i = 0; i < inliers.rows; ++i)
+    {
+      auto index = inliers.at<int>(i, 0);
+      EdgeProjectXYZ2UVPoseOnly *edge = new EdgeProjectXYZ2UVPoseOnly();
+      edge->setId(i);
+      edge->setVertex(0, pose);
+      edge->camera_model_ = camera_model_.get();
+      edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z};
+      edge->setMeasurement(Vector2d{pts_2d[index].x, pts_2d[index].y});
+      edge->setInformation(Matrix2d::Identity());
+      optimizer.addEdge(edge);
+
+      local_map_->updateMapPointMatchedTimes(matched_map_pts[index]->getMapPointId());
+    }
+
+    optimizer.initializeOptimization();
+    optimizer.optimize(10);
+
+    T_c_w_estimated_ = SE3(
+        pose->estimate().rotation(),
+        pose->estimate().translation());
+
+    cout << "T_c_w_estimated: " << T_c_w_estimated_.matrix() << '\n';
   }
-
-  optimizer.initializeOptimization();
-  optimizer.optimize(10);
-
-  T_c_w_estimated_ = SE3(
-      pose->estimate().rotation(),
-      pose->estimate().translation());
-
-  cout << "T_c_w_estimated: " << T_c_w_estimated_.matrix() << '\n';
 }
 
 void FeatureTracker::addKeyFrame()
 {
+  cout << "addKeyFrame\n";
   if (local_map_->getKeyFramesNumber() == 0)
   {
     for (size_t i = 0; i < curr_keypoints_.size(); ++i)
     {
       auto kp = curr_keypoints_[i];
-      double depth = findDepthForPixel(kp);
+      auto depth = findDepthForPixel(kp);
+
       if (depth < 0)
         continue;
 
       Vector3d point_world = camera_model_->pixel2world(
           Vector2d{kp.pt.x, kp.pt.y}, curr_frame_->getTransform(), depth);
 
-      // Vector3d point_norm = point_world - ref_frame_->getCamCenter();
-      // point_norm.normalize();
-      auto map_point = MapPoint::createMapPoint(point_world, curr_descriptors_.row(i).clone(), curr_frame_.get());
-
-      local_map_->insertMapPoint(map_point);
+      local_map_->insertMapPoint(point_world, curr_descriptors_.row(i).clone(), curr_frame_);
     }
     cout << "added map points to local map\n";
   }
 
-  local_map_->insertKeyFrame(curr_frame_);
+  local_map_->insertCurrentFrame();
   ref_frame_ = curr_frame_;
 
   cout << "new KeyFrame added\n";
@@ -225,26 +222,32 @@ void FeatureTracker::addMapPoints()
     Vector3d point_world = camera_model_->pixel2world(
         Vector2d{kp.pt.x, kp.pt.y}, curr_frame_->getTransform(), depth);
 
-    // Vector3d point_norm = point_world - ref_frame_->getCamCenter();
-    // point_norm.normalize();
-    auto map_point = MapPoint::createMapPoint(point_world, curr_descriptors_.row(i).clone(), curr_frame_.get());
-
-    local_map_->insertMapPoint(map_point);
+    local_map_->insertMapPoint(point_world, curr_descriptors_.row(i).clone(), curr_frame_);
   }
 }
 
 void FeatureTracker::updateLocalMap()
 {
-  auto &local_map_points = local_map_->getMapPoints();
+  const auto &local_map_points = local_map_->getMapPoints();
+
+  cout << "map points: " << local_map_points.size() << " before update\n";
+
+  vector<unsigned long> pt_ids;
 
   for (auto iter = local_map_points.begin(); iter != local_map_points.end(); ++iter)
   {
     if (!checkMapPointInFrame(iter->second->getPosition(), curr_frame_->getTransform()))
     {
-      iter = local_map_points.erase(iter);
-      continue;
+      pt_ids.push_back(iter->first);
     }
   }
+
+  for (auto id : pt_ids)
+  {
+    local_map_->removeMapPoint(id);
+  }
+
+  cout << "map points: " << local_map_points.size() << " after update\n";
 
   if (matched_pts_idx.size() < 100)
   {
@@ -319,7 +322,8 @@ bool FeatureTracker::verifyEstimatedPose() const
 
 void FeatureTracker::updateCurrentFrameTransform()
 {
-  curr_frame_->setTransform(T_c_w_estimated_);
+  local_map_->updateCurrentFrameTransform(T_c_w_estimated_);
+  local_map_->getCurrentFrame(curr_frame_); // update current frame reference for tracker
 }
 
 bool FeatureTracker::needNewKeyFrame() const

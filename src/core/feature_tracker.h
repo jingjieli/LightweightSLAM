@@ -16,8 +16,8 @@ public:
   FeatureTracker();
   ~FeatureTracker();
 
-  void setReferenceFrame(shared_ptr<Frame> frame);
-  void setCurrentFrame(shared_ptr<Frame> frame);
+  void createNewFrame(const SE3 &T_c_w);
+
   void setCurrentImages(const Mat &color_img, const Mat &depth_img);
   void extractFeatures();
   void matchFeatures();
@@ -39,14 +39,14 @@ public:
 private:
   Ptr<ORB> orb_detector_;
   FlannBasedMatcher flann_matcher_;
-  shared_ptr<Frame> ref_frame_;
-  shared_ptr<Frame> curr_frame_;
+  Frame* ref_frame_ = nullptr;
+  Frame* curr_frame_ = nullptr;
   vector<KeyPoint> curr_keypoints_;
   Mat curr_descriptors_;
-  shared_ptr<Map> local_map_;
+  unique_ptr<Map> local_map_;
 
-  vector<shared_ptr<MapPoint>> matched_map_pts; // matched 3d points
-  vector<int> matched_pts_idx;                  // matched pixel
+  vector<MapPoint*> matched_map_pts; // matched 3d points
+  vector<int> matched_pts_idx; // matched pixel
 
   Mat curr_color_img_;
   Mat curr_depth_img_;

@@ -20,14 +20,9 @@ Frame::~Frame()
 {
 }
 
-shared_ptr<Frame> Frame::createFrame()
+unique_ptr<Frame> Frame::createFrame(const SE3 &T_c_w)
 {
-  return shared_ptr<Frame>(new Frame());
-}
-
-shared_ptr<Frame> Frame::createFrame(const SE3 &T_c_w)
-{
-  return shared_ptr<Frame>(new Frame(T_c_w));
+  return unique_ptr<Frame>(new Frame(T_c_w));
 }
 
 unsigned long Frame::getFrameId() const

@@ -1,19 +1,15 @@
 #include "map_point.h"
 #include "frame.h"
+#include "map.h"
 
 namespace NaiveSLAM
 {
 
 unsigned long MapPoint::factory_id_ = 0;
 
-shared_ptr<MapPoint> MapPoint::createMapPoint()
+unique_ptr<MapPoint> MapPoint::createMapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame)
 {
-  return shared_ptr<MapPoint>(new MapPoint());
-}
-
-shared_ptr<MapPoint> MapPoint::createMapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame)
-{
-  return shared_ptr<MapPoint>(new MapPoint(world_coord, descriptor, frame));
+  return unique_ptr<MapPoint>(new MapPoint(world_coord, descriptor, frame));
 }
 
 MapPoint::MapPoint()
@@ -36,12 +32,12 @@ unsigned long MapPoint::getMapPointId() const
   return map_point_id_;
 }
 
-const Vector3d& MapPoint::getPosition() const
+const Vector3d &MapPoint::getPosition() const
 {
   return world_coord_;
 }
 
-const Mat& MapPoint::getDescriptor() const
+const Mat &MapPoint::getDescriptor() const
 {
   return descriptor_;
 }
