@@ -54,5 +54,7 @@ int main(int argc, char** argv)
       break;
   }
 
+  rgbd_camera->stop();
+
   return 0;
 }

@@ -4,6 +4,7 @@
 #include "map.h"
 #include "pinhole_camera_model.h"
 #include "g2o_solvers.h"
+#include "ceres_problems.h"
 #include "viewer.h"
 
 namespace NaiveSLAM
@@ -136,41 +137,11 @@ void FeatureTracker::estimatePose()
 
   cout << "T_c_w_pnp_: " << T_c_w_pnp_.matrix() << '\n';
 
-  using BlockSolver_6_2 = BlockSolver<BlockSolverTraits<6, 2>>;
-  BlockSolver_6_2::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_2::PoseMatrixType>();
-  BlockSolver_6_2 *solver_ptr = new BlockSolver_6_2(linear_solver);
-  OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
-  SparseOptimizer optimizer;
-  optimizer.setAlgorithm(algo);
-  optimizer.setVerbose(true);
+  // g2o 
+  //optimizePoseG2O(pts_3d, pts_2d, inliers);
 
-  VertexSE3Expmap *pose = new VertexSE3Expmap();
-  pose->setId(0);
-  pose->setEstimate(SE3Quat(
-      T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
-  optimizer.addVertex(pose);
-
-  for (int i = 0; i < inliers.rows; ++i)
-  {
-    auto index = inliers.at<int>(i, 0);
-    EdgeProjectXYZ2UVPoseOnly *edge = new EdgeProjectXYZ2UVPoseOnly();
-    edge->setId(i);
-    edge->setVertex(0, pose);
-    edge->camera_model_ = camera_model_.get();
-    edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z};
-    edge->setMeasurement(Vector2d{pts_2d[index].x, pts_2d[index].y});
-    edge->setInformation(Matrix2d::Identity());
-    optimizer.addEdge(edge);
-
-    local_map_->updateMapPointMatchedTimes(matched_map_pts[index]->getMapPointId());
-  }
-
-  optimizer.initializeOptimization();
-  optimizer.optimize(10);
-
-  T_c_w_estimated_ = SE3(
-      pose->estimate().rotation(),
-      pose->estimate().translation());
+  // ceres-solver
+  optimizePoseCeres(pts_3d, pts_2d, inliers);
 
   cout << "T_c_w_estimated: " << T_c_w_estimated_.matrix() << '\n';
 }
@@ -355,6 +326,88 @@ void FeatureTracker::updateViewer()
   viewer_->updateMapPoints(local_map_->getMapPointsToRender());
   viewer_->updateKeyFrames(local_map_->getKeyFramesToRender());
   viewer_->updateTrajectory(local_map_->getTrajectoryToRender());
+}
+
+void FeatureTracker::optimizePoseG2O(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers)
+{
+  using BlockSolver_6_2 = BlockSolver<BlockSolverTraits<6, 2>>;
+  BlockSolver_6_2::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_2::PoseMatrixType>();
+  BlockSolver_6_2 *solver_ptr = new BlockSolver_6_2(linear_solver);
+  OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
+  SparseOptimizer optimizer;
+  optimizer.setAlgorithm(algo);
+  optimizer.setVerbose(true);
+
+  VertexSE3Expmap *pose = new VertexSE3Expmap();
+  pose->setId(0);
+  pose->setEstimate(SE3Quat(
+      T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
+  optimizer.addVertex(pose);
+
+  for (int i = 0; i < inliers.rows; ++i)
+  {
+    auto index = inliers.at<int>(i, 0);
+    EdgeProjectXYZ2UVPoseOnly *edge = new EdgeProjectXYZ2UVPoseOnly();
+    edge->setId(i);
+    edge->setVertex(0, pose);
+    edge->camera_model_ = camera_model_.get();
+    edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z};
+    edge->setMeasurement(Vector2d{pts_2d[index].x, pts_2d[index].y});
+    edge->setInformation(Matrix2d::Identity());
+    optimizer.addEdge(edge);
+
+    local_map_->updateMapPointMatchedTimes(matched_map_pts[index]->getMapPointId());
+  }
+
+  optimizer.initializeOptimization();
+  optimizer.optimize(10);
+
+  T_c_w_estimated_ = SE3(
+      pose->estimate().rotation(),
+      pose->estimate().translation());
+}
+
+void FeatureTracker::optimizePoseCeres(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers)
+{
+  // Eigen: quaternion constructor order: w, x, y, z
+  // but in memory it's stored as: x, y, z, w
+  auto quat = Quaterniond(T_c_w_pnp_.rotation_matrix());
+  auto trans = T_c_w_pnp_.translation();
+  // cout << "quat(xyzw): " << quat.coeffs() << '\n';
+  // cout << "quat(x,y,z,w): " << quat.x() << " " << quat.y() << " " << quat.z() << " " << quat.w() << '\n';
+  double initial_pose[7] {quat.x(), quat.y(), quat.z(), quat.w(), trans.x(), trans.y(), trans.z()};
+
+  ceres::Problem problem;
+  for (int i = 0; i < inliers.rows; ++i)
+  {
+    auto index = inliers.at<int>(i, 0);
+
+    problem.AddResidualBlock(
+      new ceres::AutoDiffCostFunction<ReprojectionError, 2, 7>(
+        new ReprojectionError(
+          Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z},
+          Vector2d{pts_2d[index].x, pts_2d[index].y},
+          camera_model_.get())
+      ),
+      nullptr,
+      initial_pose
+    );
+  }
+
+  ceres::Solver::Options options;
+  options.linear_solver_type = ceres::DENSE_SCHUR;
+  options.minimizer_progress_to_stdout = true;
+
+  ceres::Solver::Summary summary;
+  ceres::Solve(options, &problem, &summary);
+
+  cout << summary.FullReport() << '\n';
+
+  Quaterniond quat_est(initial_pose[3], initial_pose[0], initial_pose[1], initial_pose[2]);
+  Matrix3d R_est(quat_est);
+  Vector3d t_est(initial_pose[4], initial_pose[5], initial_pose[6]);
+
+  T_c_w_estimated_ = SE3(R_est, t_est);
 }
 
 } // namespace NaiveSLAM

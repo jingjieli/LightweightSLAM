@@ -23,6 +23,10 @@
 #include <g2o/core/robust_kernel.h>
 #include <g2o/core/robust_kernel_impl.h>
 
+#include <ceres/ceres.h>
+#include <ceres/rotation.h>
+#include <ceres/local_parameterization.h>
+
 #include "pangolin/pangolin.h"
 
 using namespace std;
