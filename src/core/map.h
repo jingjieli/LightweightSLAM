@@ -10,8 +10,8 @@ class MapPoint;
 
 class Map
 {
-  using LOCAL_KEYFRAMES = unordered_map<unsigned long, unique_ptr<Frame>>;
-  using LOCAL_MAP_POINTS = unordered_map<unsigned long, unique_ptr<MapPoint>>;
+  using KEYFRAMES = unordered_map<unsigned long, shared_ptr<Frame>>;
+  using MAP_POINTS = unordered_map<unsigned long, shared_ptr<MapPoint>>;
 
 public:
   Map();
@@ -21,18 +21,15 @@ public:
   Map &operator=(const Map &map) = delete;
   Map &operator=(Map &&map) = delete;
 
-  void createNewFrame(Frame *&frame_ptr, const SE3 &T_c_w);
-
-  void getCurrentFrame(Frame *&frame_ptr) const;
-
-  void insertCurrentFrame();
-  void insertMapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame);
+  void addFrameToMap(shared_ptr<Frame> frame);
+  void addPointToMap(shared_ptr<MapPoint> map_point);
+  void addPointToGlobalMap(unsigned long id);
   size_t getKeyFramesNumber() const;
 
-  const LOCAL_KEYFRAMES &getKeyframes();
-  const LOCAL_MAP_POINTS &getMapPoints();
+  const KEYFRAMES &getKeyframes();
+  const MAP_POINTS &getMapPoints();
 
-  const vector<Vector3d> &getMapPointsToRender();
+  const vector<Vector3d> &getMapPointsToRender(RenderMode mode);
   const vector<SE3> &getKeyFramesToRender();
   const vector<SE3> &getTrajectoryToRender();
 
@@ -40,25 +37,21 @@ public:
   void updateMapPointMatchedTimes(unsigned long pt_id);
   void removeMapPoint(unsigned long pt_id);
 
-  SE3 getCurrentFrameTransform();
-  void updateCurrentFrameTransform(const SE3 &pose);
-
-  void finalizeCurrentFrame();
+  void saveFramePose(const SE3 &pose);
 
 private:
-  LOCAL_KEYFRAMES keyframes_;
-  LOCAL_MAP_POINTS map_points_;
-
-  unique_ptr<Frame> curr_frame_;
+  KEYFRAMES keyframes_;
+  MAP_POINTS map_points_;
+  MAP_POINTS all_map_points_;
 
   mutex data_mtx_;
 
   // ****** for render ******
   vector<Vector3d> map_points_coord;
+  vector<Vector3d> all_map_points_coord;
   vector<SE3> keyframe_poses_;
   vector<SE3> all_frame_poses_;
 
-  unique_ptr<MapPoint> createNewMapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame);
 };
 
 } // namespace NaiveSLAM

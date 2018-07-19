@@ -24,12 +24,14 @@ public:
   void setTransform(const SE3 &new_T_c_w);
   Vector3d getCamCenter() const;
 
+  void addPointToFrame(shared_ptr<MapPoint> map_point);
+
 private:
   static unsigned long factory_id_;
   unsigned long frame_id_;
   SE3 T_c_w_; // transform from world to camera
   vector<KeyPoint*> keypoints_;
-  vector<MapPoint*> map_points_;
+  vector<shared_ptr<MapPoint>> map_points_;
 };
 
 } // namespace NaiveSLAM

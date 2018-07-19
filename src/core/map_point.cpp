@@ -7,7 +7,7 @@ namespace NaiveSLAM
 
 unsigned long MapPoint::factory_id_ = 0;
 
-unique_ptr<MapPoint> MapPoint::createMapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame)
+unique_ptr<MapPoint> MapPoint::createMapPoint(const Vector3d &world_coord, const Mat &descriptor, shared_ptr<Frame> frame)
 {
   return unique_ptr<MapPoint>(new MapPoint(world_coord, descriptor, frame));
 }
@@ -17,7 +17,7 @@ MapPoint::MapPoint()
 {
 }
 
-MapPoint::MapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame)
+MapPoint::MapPoint(const Vector3d &world_coord, const Mat &descriptor, shared_ptr<Frame> frame)
     : map_point_id_(factory_id_++), world_coord_(world_coord), descriptor_(descriptor)
 {
   observed_frames_.push_back(frame);

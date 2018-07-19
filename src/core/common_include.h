@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <thread>
 #include <mutex>
+#include <algorithm>
 
 #include "sophus/se3.h"
 #include "sophus/so3.h"
@@ -34,3 +35,12 @@ using namespace Sophus;
 using namespace Eigen;
 using namespace cv;
 using namespace g2o;
+
+namespace NaiveSLAM
+{
+enum class RenderMode
+{
+  LOCAL = 0,
+  GLOBAL = 1
+};
+} // namespace NaiveSLAM

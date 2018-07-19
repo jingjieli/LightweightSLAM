@@ -26,8 +26,7 @@ FeatureTracker::~FeatureTracker()
 
 void FeatureTracker::createNewFrame(const SE3 &T_c_w)
 {
-  local_map_->createNewFrame(curr_frame_, T_c_w);
-  assert(curr_frame_ != nullptr);
+  curr_frame_ = move(Frame::createFrame(T_c_w));
 }
 
 void FeatureTracker::setCurrentImages(const Mat &color_img, const Mat &depth_img)
@@ -50,7 +49,7 @@ void FeatureTracker::matchFeatures()
 
   // select candidates from local map
   Mat map_pts_descriptors;
-  vector<MapPoint *> candidates;
+  vector<shared_ptr<MapPoint>> candidates;
 
   const auto &all_map_pts = local_map_->getMapPoints();
 
@@ -64,7 +63,7 @@ void FeatureTracker::matchFeatures()
     if (pt_in_frame)
     {
       local_map_->updateMapPointVisibility(map_point.first);
-      candidates.emplace_back(ptr.get());
+      candidates.emplace_back(ptr);
       map_pts_descriptors.push_back(ptr->getDescriptor());
     }
   }
@@ -72,7 +71,18 @@ void FeatureTracker::matchFeatures()
 
   flann_matcher_.match(map_pts_descriptors, curr_descriptors_, matches);
 
-  cout << "flann found " << matches.size() << " matches\n";
+  matched_map_pts.clear();
+  matched_pts_idx.clear();
+
+  if(matches.empty())
+  { 
+    cout << "no matches found\n";
+    return;
+  }
+  else
+  {
+    cout << "flann found " << matches.size() << " matches\n";
+  }
 
   // select best matches
   auto min_dist = min_element(
@@ -81,9 +91,6 @@ void FeatureTracker::matchFeatures()
                         return m1.distance < m2.distance;
                       })
                       ->distance;
-
-  matched_map_pts.clear();
-  matched_pts_idx.clear();
 
   for (const auto &m : matches)
   {
@@ -162,12 +169,15 @@ void FeatureTracker::addKeyFrame()
       Vector3d point_world = camera_model_->pixel2world(
           Vector2d{kp.pt.x, kp.pt.y}, curr_frame_->getTransform(), depth);
 
-      local_map_->insertMapPoint(point_world, curr_descriptors_.row(i).clone(), curr_frame_);
+      shared_ptr<MapPoint> map_point = move(MapPoint::createMapPoint(point_world, curr_descriptors_.row(i).clone(), curr_frame_));
+
+      local_map_->addPointToMap(map_point);
+      curr_frame_->addPointToFrame(map_point);
     }
     cout << "added map points to local map\n";
   }
 
-  local_map_->insertCurrentFrame();
+  local_map_->addFrameToMap(curr_frame_);
   ref_frame_ = curr_frame_;
 
   cout << "new KeyFrame added\n";
@@ -181,6 +191,8 @@ void FeatureTracker::addMapPoints()
     matched[i] = true;
   }
 
+  // for those features that can't be matched to previous
+  // add them to local map for later use
   for (size_t i = 0; i < curr_keypoints_.size(); ++i)
   {
     if (matched[i])
@@ -189,13 +201,21 @@ void FeatureTracker::addMapPoints()
     auto kp = curr_keypoints_[i];
     double depth = findDepthForPixel(kp);
     if (depth < 0)
+    {
+      matched[i] = true; // dirty way to mark a point unused
       continue;
+    }
 
     Vector3d point_world = camera_model_->pixel2world(
         Vector2d{kp.pt.x, kp.pt.y}, curr_frame_->getTransform(), depth);
 
-    local_map_->insertMapPoint(point_world, curr_descriptors_.row(i).clone(), curr_frame_);
+    shared_ptr<MapPoint> map_point = move(MapPoint::createMapPoint(point_world, curr_descriptors_.row(i).clone(), curr_frame_));
+
+    local_map_->addPointToMap(map_point);
+    curr_frame_->addPointToFrame(map_point);
   }
+
+  cout << "added " << count(matched.begin(), matched.end(), false) << " map points\n";
 }
 
 void FeatureTracker::updateLocalMap()
@@ -216,6 +236,8 @@ void FeatureTracker::updateLocalMap()
 
   for (auto id : pt_ids)
   {
+    // add it to global map before remove from local map
+    local_map_->addPointToGlobalMap(id);
     local_map_->removeMapPoint(id);
   }
 
@@ -292,10 +314,9 @@ bool FeatureTracker::verifyEstimatedPose() const
   return true;
 }
 
-void FeatureTracker::updateCurrentFrameTransform()
+void FeatureTracker::updateCurrentFramePose()
 {
-  local_map_->updateCurrentFrameTransform(T_c_w_estimated_);
-  local_map_->getCurrentFrame(curr_frame_); // update current frame reference for tracker
+  curr_frame_->setTransform(T_c_w_estimated_);
 }
 
 bool FeatureTracker::needNewKeyFrame() const
@@ -310,9 +331,9 @@ bool FeatureTracker::needNewKeyFrame() const
   return false;
 }
 
-void FeatureTracker::finalizeCurrentFrame()
+void FeatureTracker::saveCurrentFramePose()
 {
-  local_map_->finalizeCurrentFrame();
+  local_map_->saveFramePose(curr_frame_->getTransform());
 }
 
 void FeatureTracker::setViewer(Viewer* viewer)
@@ -323,7 +344,8 @@ void FeatureTracker::setViewer(Viewer* viewer)
 void FeatureTracker::updateViewer()
 {
   viewer_->updateCurrentCameraPose(curr_frame_->getTransform());
-  viewer_->updateMapPoints(local_map_->getMapPointsToRender());
+  viewer_->updateMapPoints(local_map_->getMapPointsToRender(RenderMode::LOCAL), RenderMode::LOCAL);
+  viewer_->updateMapPoints(local_map_->getMapPointsToRender(RenderMode::GLOBAL), RenderMode::GLOBAL);
   viewer_->updateKeyFrames(local_map_->getKeyFramesToRender());
   viewer_->updateTrajectory(local_map_->getTrajectoryToRender());
 }

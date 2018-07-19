@@ -80,7 +80,8 @@ void Viewer::start()
 
     if (menuShowPoints)
     {
-      drawMapPoints();
+      drawMapPoints(RenderMode::LOCAL);
+      drawMapPoints(RenderMode::GLOBAL);
     }
 
     if (menuShowPath)
@@ -110,10 +111,18 @@ void Viewer::updateCurrentCameraPose(const SE3 &sophus_T_c_w)
   poseToGlMatrix(sophus_T_w_c, T_w_c_);
 }
 
-void Viewer::updateMapPoints(const vector<Vector3d> &points)
+void Viewer::updateMapPoints(const vector<Vector3d> &points, RenderMode mode)
 {
   unique_lock<mutex> lock(render_mtx_);
-  map_points_ = points;
+  switch (mode)
+  {
+  case RenderMode::LOCAL:
+  {
+    map_points_ = points;
+  }
+  case RenderMode::GLOBAL:
+    all_map_points_ = points;
+  }
 }
 
 void Viewer::updateKeyFrames(const vector<SE3> &poses)
@@ -219,23 +228,45 @@ void Viewer::drawKeyFrames()
   }
 }
 
-void Viewer::drawMapPoints()
+void Viewer::drawMapPoints(RenderMode mode)
 {
   unique_lock<mutex> lock(render_mtx_);
 
-  if (map_points_.empty())
-    return;
-
-  glPointSize(2);
-  glBegin(GL_POINTS);
-  glColor3f(1.0, 0.0, 0.0);
-
-  for (auto point : map_points_)
+  switch (mode)
   {
-    glVertex3f(point.x(), point.y(), point.z());
-  }
+  case RenderMode::LOCAL:
+  {
+    if (map_points_.empty())
+      return;
 
-  glEnd();
+    glPointSize(2);
+    glBegin(GL_POINTS);
+    glColor3f(1.0, 0.0, 0.0);
+
+    for (auto point : map_points_)
+    {
+      glVertex3f(point.x(), point.y(), point.z());
+    }
+
+    glEnd();
+  }
+  case RenderMode::GLOBAL:
+  {
+    if (all_map_points_.empty())
+      return;
+
+    glPointSize(2);
+    glBegin(GL_POINTS);
+    glColor3f(1.0, 0.0, 0.0);
+
+    for (auto point : all_map_points_)
+    {
+      glVertex3f(point.x(), point.y(), point.z());
+    }
+
+    glEnd();
+  }
+  }
 }
 
 void Viewer::drawTrajectory()

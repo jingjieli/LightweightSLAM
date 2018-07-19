@@ -14,10 +14,10 @@ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   MapPoint();
-  MapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame);
+  MapPoint(const Vector3d &world_coord, const Mat &descriptor, shared_ptr<Frame> frame);
   ~MapPoint();
 
-  static unique_ptr<MapPoint> createMapPoint(const Vector3d &world_coord, const Mat &descriptor, Frame *frame);
+  static unique_ptr<MapPoint> createMapPoint(const Vector3d &world_coord, const Mat &descriptor, shared_ptr<Frame> frame);
   
   unsigned long getMapPointId() const;
   const Vector3d& getPosition() const;
@@ -34,7 +34,7 @@ private:
 
   Vector3d world_coord_; // coordinates in world
 
-  list<Frame *> observed_frames_; // frames that observed this point
+  list<shared_ptr<Frame>> observed_frames_; // frames that observed this point
 };
 
 } // namespace NaiveSLAM

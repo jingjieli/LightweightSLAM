@@ -47,7 +47,7 @@ void System::processImage(const Mat &color_img, const Mat &depth_img)
 
     if (feature_tracker_->verifyEstimatedPose())
     {
-      feature_tracker_->updateCurrentFrameTransform();
+      feature_tracker_->updateCurrentFramePose();
       lost_times_ = 0;
 
       feature_tracker_->updateLocalMap();
@@ -58,7 +58,8 @@ void System::processImage(const Mat &color_img, const Mat &depth_img)
       }
       else 
       {
-        feature_tracker_->finalizeCurrentFrame();
+        // for non keyframe, only save frame pose
+        feature_tracker_->saveCurrentFramePose();
       }
     }
     else

@@ -33,11 +33,11 @@ public:
 
   bool verifyEstimatedPose() const;
 
-  void updateCurrentFrameTransform();
+  void updateCurrentFramePose();
 
   bool needNewKeyFrame() const;
 
-  void finalizeCurrentFrame();
+  void saveCurrentFramePose();
 
   void setViewer(Viewer* viewer);
   void updateViewer();
@@ -45,13 +45,13 @@ public:
 private:
   Ptr<ORB> orb_detector_;
   FlannBasedMatcher flann_matcher_;
-  Frame* ref_frame_ = nullptr;
-  Frame* curr_frame_ = nullptr;
+  shared_ptr<Frame> ref_frame_;
+  shared_ptr<Frame> curr_frame_;
   vector<KeyPoint> curr_keypoints_;
   Mat curr_descriptors_;
   unique_ptr<Map> local_map_;
 
-  vector<MapPoint*> matched_map_pts; // matched 3d points
+  vector<shared_ptr<MapPoint>> matched_map_pts; // matched 3d points
   vector<int> matched_pts_idx; // matched pixel
 
   Mat curr_color_img_;

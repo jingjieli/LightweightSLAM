@@ -45,4 +45,9 @@ Vector3d Frame::getCamCenter() const
   return T_c_w_.inverse().translation();
 }
 
+void Frame::addPointToFrame(shared_ptr<MapPoint> map_point)
+{
+  map_points_.push_back(map_point);
+}
+
 } // namespace NaiveSLAM
