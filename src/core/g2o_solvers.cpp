@@ -7,16 +7,15 @@ namespace NaiveSLAM
 {
 void EdgeProjectXYZ2UVPoseOnly::computeError()
 {
-  const VertexSE3Expmap* pose = static_cast<const VertexSE3Expmap *>(_vertices[0]);
+  const VertexSE3Expmap *pose = static_cast<const VertexSE3Expmap *>(_vertices[0]);
+  // reproject point to image space, calculate error with features
   _error = _measurement - camera_model_->camera2pixel(
                               pose->estimate().map(point_));
-
-  // cout << "_error: " << _error << '\n';
 }
 
 void EdgeProjectXYZ2UVPoseOnly::linearizeOplus()
 {
-  VertexSE3Expmap* pose = static_cast<VertexSE3Expmap *>(_vertices[0]);
+  VertexSE3Expmap *pose = static_cast<VertexSE3Expmap *>(_vertices[0]);
   SE3Quat T(pose->estimate());
 
   Vector3d xyz_trans = T.map(point_);
@@ -42,6 +41,85 @@ void EdgeProjectXYZ2UVPoseOnly::linearizeOplus()
   _jacobianOplusXi(1, 3) = 0;
   _jacobianOplusXi(1, 4) = -1. / z * fy;
   _jacobianOplusXi(1, 5) = y / z_2 * fy;
+}
 
+void EdgeProjectXYZRGBDPoseOnly::computeError()
+{
+  const VertexSE3Expmap *pose = static_cast<const VertexSE3Expmap *>(_vertices[0]);
+  // reproject point to camera space, calculate error with depth measurement
+  _error = _measurement - pose->estimate().map(point_);
+}
+
+void EdgeProjectXYZRGBDPoseOnly::linearizeOplus()
+{
+  VertexSE3Expmap *pose = static_cast<VertexSE3Expmap *>(_vertices[0]);
+  SE3Quat T(pose->estimate());
+  Vector3d xyz_trans = T.map(point_);
+  double x = xyz_trans[0];
+  double y = xyz_trans[1];
+  double z = xyz_trans[2];
+
+  _jacobianOplusXi(0, 0) = 0;
+  _jacobianOplusXi(0, 1) = -z;
+  _jacobianOplusXi(0, 2) = y;
+  _jacobianOplusXi(0, 3) = -1;
+  _jacobianOplusXi(0, 4) = 0;
+  _jacobianOplusXi(0, 5) = 0;
+
+  _jacobianOplusXi(1, 0) = z;
+  _jacobianOplusXi(1, 1) = 0;
+  _jacobianOplusXi(1, 2) = -x;
+  _jacobianOplusXi(1, 3) = 0;
+  _jacobianOplusXi(1, 4) = -1;
+  _jacobianOplusXi(1, 5) = 0;
+
+  _jacobianOplusXi(2, 0) = -y;
+  _jacobianOplusXi(2, 1) = x;
+  _jacobianOplusXi(2, 2) = 0;
+  _jacobianOplusXi(2, 3) = 0;
+  _jacobianOplusXi(2, 4) = 0;
+  _jacobianOplusXi(2, 5) = -1;
+}
+
+void EdgeProjectXYZRGBD::computeError()
+{
+  const VertexSBAPointXYZ *point = static_cast<const VertexSBAPointXYZ *>(_vertices[0]);
+  const VertexSE3Expmap *pose = static_cast<const VertexSE3Expmap *>(_vertices[1]);
+  _error = _measurement - pose->estimate().map(point->estimate());
+}
+
+void EdgeProjectXYZRGBD::linearizeOplus()
+{
+  VertexSE3Expmap *pose = static_cast<VertexSE3Expmap *>(_vertices[1]);
+  SE3Quat T(pose->estimate());
+  VertexSBAPointXYZ *point = static_cast<VertexSBAPointXYZ *>(_vertices[0]);
+  Eigen::Vector3d xyz = point->estimate();
+  Eigen::Vector3d xyz_trans = T.map(xyz);
+  double x = xyz_trans[0];
+  double y = xyz_trans[1];
+  double z = xyz_trans[2];
+
+  _jacobianOplusXi = -T.rotation().toRotationMatrix();
+
+  _jacobianOplusXj(0, 0) = 0;
+  _jacobianOplusXj(0, 1) = -z;
+  _jacobianOplusXj(0, 2) = y;
+  _jacobianOplusXj(0, 3) = -1;
+  _jacobianOplusXj(0, 4) = 0;
+  _jacobianOplusXj(0, 5) = 0;
+
+  _jacobianOplusXj(1, 0) = z;
+  _jacobianOplusXj(1, 1) = 0;
+  _jacobianOplusXj(1, 2) = -x;
+  _jacobianOplusXj(1, 3) = 0;
+  _jacobianOplusXj(1, 4) = -1;
+  _jacobianOplusXj(1, 5) = 0;
+
+  _jacobianOplusXj(2, 0) = -y;
+  _jacobianOplusXj(2, 1) = x;
+  _jacobianOplusXj(2, 2) = 0;
+  _jacobianOplusXj(2, 3) = 0;
+  _jacobianOplusXj(2, 4) = 0;
+  _jacobianOplusXj(2, 5) = -1;
 }
 } // namespace NaiveSLAM

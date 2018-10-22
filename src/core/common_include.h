@@ -43,4 +43,10 @@ enum class RenderMode
   LOCAL = 0,
   GLOBAL = 1
 };
+
+enum class ErrorTerm
+{
+  PHOTOMETRIC = 0,
+  REPROJECTION = 1
+};
 } // namespace NaiveSLAM

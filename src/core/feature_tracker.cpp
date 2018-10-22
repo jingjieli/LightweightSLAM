@@ -74,8 +74,8 @@ void FeatureTracker::matchFeatures()
   matched_map_pts.clear();
   matched_pts_idx.clear();
 
-  if(matches.empty())
-  { 
+  if (matches.empty())
+  {
     cout << "no matches found\n";
     return;
   }
@@ -144,11 +144,14 @@ void FeatureTracker::estimatePose()
 
   cout << "T_c_w_pnp_: " << T_c_w_pnp_.matrix() << '\n';
 
-  // g2o 
-  //optimizePoseG2O(pts_3d, pts_2d, inliers);
+  // g2o
+  //optimizePoseG2O(pts_3d, pts_2d, inliers, ErrorTerm::REPROJECTION);
+  //cout << "T_c_w_estimated_1: " << T_c_w_estimated_.matrix() << '\n';
+  //optimizePoseG2O(pts_3d, pts_2d, inliers, ErrorTerm::PHOTOMETRIC);
+  optimizePoseAndPointsG2O(pts_3d, pts_2d, inliers, ErrorTerm::REPROJECTION);
 
   // ceres-solver
-  optimizePoseCeres(pts_3d, pts_2d, inliers);
+  //optimizePoseCeres(pts_3d, pts_2d, inliers);
 
   cout << "T_c_w_estimated: " << T_c_w_estimated_.matrix() << '\n';
 }
@@ -243,7 +246,7 @@ void FeatureTracker::updateLocalMap()
 
   cout << "map points: " << local_map_points.size() << " after update\n";
 
-  if (matched_pts_idx.size() < 100)
+  if (matched_pts_idx.size() < 200)
   {
     addMapPoints();
   }
@@ -336,7 +339,7 @@ void FeatureTracker::saveCurrentFramePose()
   local_map_->saveFramePose(curr_frame_->getTransform());
 }
 
-void FeatureTracker::setViewer(Viewer* viewer)
+void FeatureTracker::setViewer(Viewer *viewer)
 {
   viewer_ = viewer;
 }
@@ -350,43 +353,175 @@ void FeatureTracker::updateViewer()
   viewer_->updateTrajectory(local_map_->getTrajectoryToRender());
 }
 
-void FeatureTracker::optimizePoseG2O(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers)
+void FeatureTracker::optimizePoseG2O(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers, ErrorTerm error_term)
 {
-  using BlockSolver_6_2 = BlockSolver<BlockSolverTraits<6, 2>>;
-  BlockSolver_6_2::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_2::PoseMatrixType>();
-  BlockSolver_6_2 *solver_ptr = new BlockSolver_6_2(linear_solver);
-  OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
-  SparseOptimizer optimizer;
-  optimizer.setAlgorithm(algo);
-  optimizer.setVerbose(true);
 
-  VertexSE3Expmap *pose = new VertexSE3Expmap();
-  pose->setId(0);
-  pose->setEstimate(SE3Quat(
-      T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
-  optimizer.addVertex(pose);
-
-  for (int i = 0; i < inliers.rows; ++i)
+  switch (error_term)
   {
-    auto index = inliers.at<int>(i, 0);
-    EdgeProjectXYZ2UVPoseOnly *edge = new EdgeProjectXYZ2UVPoseOnly();
-    edge->setId(i);
-    edge->setVertex(0, pose);
-    edge->camera_model_ = camera_model_.get();
-    edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z};
-    edge->setMeasurement(Vector2d{pts_2d[index].x, pts_2d[index].y});
-    edge->setInformation(Matrix2d::Identity());
-    optimizer.addEdge(edge);
+  case ErrorTerm::PHOTOMETRIC:
+  {
+    using BlockSolver_6_2 = BlockSolver<BlockSolverTraits<6, 2>>;
+    BlockSolver_6_2::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_2::PoseMatrixType>();
+    BlockSolver_6_2 *solver_ptr = new BlockSolver_6_2(linear_solver);
+    OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
+    SparseOptimizer optimizer;
+    optimizer.setAlgorithm(algo);
+    optimizer.setVerbose(true);
 
-    local_map_->updateMapPointMatchedTimes(matched_map_pts[index]->getMapPointId());
+    VertexSE3Expmap *pose = new VertexSE3Expmap();
+    pose->setId(0);
+    // pose->setEstimate(SE3Quat(
+    //     T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
+    pose->setEstimate(SE3Quat(
+        T_c_w_estimated_.rotation_matrix(), T_c_w_estimated_.translation()));
+    optimizer.addVertex(pose);
+
+    for (int i = 0; i < inliers.rows; ++i)
+    {
+      auto index = inliers.at<int>(i, 0);
+      EdgeProjectXYZ2UVPoseOnly *edge = new EdgeProjectXYZ2UVPoseOnly();
+      edge->setId(i);
+      edge->setVertex(0, pose);
+      edge->camera_model_ = camera_model_.get();
+      edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z};
+      edge->setMeasurement(Vector2d{pts_2d[index].x, pts_2d[index].y});
+      edge->setInformation(Matrix2d::Identity());
+      optimizer.addEdge(edge);
+
+      local_map_->updateMapPointMatchedTimes(matched_map_pts[index]->getMapPointId());
+    }
+
+    optimizer.initializeOptimization();
+    optimizer.optimize(10);
+
+    T_c_w_estimated_ = SE3(
+        pose->estimate().rotation(),
+        pose->estimate().translation());
+
+    break;
   }
 
-  optimizer.initializeOptimization();
-  optimizer.optimize(10);
+  case ErrorTerm::REPROJECTION:
+  {
+    BlockSolver_6_3::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_3::PoseMatrixType>();
+    BlockSolver_6_3 *solver_ptr = new BlockSolver_6_3(linear_solver);
+    OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
+    SparseOptimizer optimizer;
+    optimizer.setAlgorithm(algo);
+    optimizer.setVerbose(true);
 
-  T_c_w_estimated_ = SE3(
-      pose->estimate().rotation(),
-      pose->estimate().translation());
+    VertexSE3Expmap *pose = new VertexSE3Expmap();
+    pose->setId(0);
+    // pose->setEstimate(SE3Quat(
+    //     T_c_w_estimated_.rotation_matrix(), T_c_w_estimated_.translation()));
+    pose->setEstimate(SE3Quat(
+        T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
+    optimizer.addVertex(pose);
+
+    for (int i = 0; i < inliers.rows; ++i)
+    {
+      auto index = inliers.at<int>(i, 0);
+      // find depth for matched point
+      auto pt = pts_2d[index];
+      auto depth = findDepthForPixel(KeyPoint(pt, 1.f));
+
+      if (depth < 0)
+        continue;
+
+      EdgeProjectXYZRGBDPoseOnly *edge = new EdgeProjectXYZRGBDPoseOnly();
+      edge->setId(i);
+      edge->setVertex(0, pose);
+      edge->point_ = Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z}; // point in world space
+
+      Vector3d point_camera = camera_model_->pixel2camera(
+          Vector2d{pt.x, pt.y}, depth); // point in camera space
+
+      edge->setMeasurement(point_camera);
+
+      edge->setInformation(Matrix3d::Identity());
+      optimizer.addEdge(edge);
+    }
+
+    optimizer.initializeOptimization();
+    optimizer.optimize(10);
+
+    T_c_w_estimated_ = SE3(
+        pose->estimate().rotation(),
+        pose->estimate().translation());
+
+    break;
+  }
+  }
+}
+
+void FeatureTracker::optimizePoseAndPointsG2O(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers, ErrorTerm error_term)
+{
+  switch (error_term)
+  {
+  case ErrorTerm::REPROJECTION:
+  {
+    using BlockSolver_9_3 = BlockSolver<BlockSolverTraits<9, 3>>;
+    BlockSolver_9_3::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_9_3::PoseMatrixType>();
+    BlockSolver_9_3 *solver_ptr = new BlockSolver_9_3(linear_solver);
+    // BlockSolver_6_3::LinearSolverType *linear_solver = new LinearSolverDense<BlockSolver_6_3::PoseMatrixType>();
+    // BlockSolver_6_3 *solver_ptr = new BlockSolver_6_3(linear_solver);
+    OptimizationAlgorithmLevenberg *algo = new OptimizationAlgorithmLevenberg(solver_ptr);
+    SparseOptimizer optimizer;
+    optimizer.setAlgorithm(algo);
+    optimizer.setVerbose(true);
+
+    VertexSE3Expmap *pose = new VertexSE3Expmap();
+    pose->setId(0);
+    // pose->setEstimate(SE3Quat(
+    //     T_c_w_estimated_.rotation_matrix(), T_c_w_estimated_.translation()));
+    pose->setEstimate(SE3Quat(
+        T_c_w_pnp_.rotation_matrix(), T_c_w_pnp_.translation()));
+    optimizer.addVertex(pose);
+
+    for (int i = 0; i < inliers.rows; ++i)
+    {
+      auto index = inliers.at<int>(i, 0);
+      // find depth for matched point
+      auto pt = pts_2d[index];
+      auto depth = findDepthForPixel(KeyPoint(pt, 1.f));
+
+      if (depth < 0)
+        continue;
+
+      VertexSBAPointXYZ *point = new VertexSBAPointXYZ();
+      point->setId(i + 1);
+      point->setMarginalized(true);
+      point->setEstimate(Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z}); // point in world space
+      optimizer.addVertex(point);
+
+      EdgeProjectXYZRGBD *edge = new EdgeProjectXYZRGBD();
+      edge->setId(i);
+      edge->setVertex(0, dynamic_cast<VertexSBAPointXYZ*>(optimizer.vertex(i + 1)));
+      edge->setVertex(1, dynamic_cast<VertexSE3Expmap*>(optimizer.vertex(0)));
+
+      Vector3d point_camera = camera_model_->pixel2camera(
+          Vector2d{pt.x, pt.y}, depth); // point in camera space
+
+      edge->setMeasurement(point_camera);
+
+      edge->setInformation(Matrix3d::Identity());
+      optimizer.addEdge(edge);
+    }
+
+    optimizer.initializeOptimization();
+    optimizer.optimize(10);
+
+    T_c_w_estimated_ = SE3(
+        pose->estimate().rotation(),
+        pose->estimate().translation());
+
+    break;
+  }
+
+  case ErrorTerm::PHOTOMETRIC:
+  {
+  }
+  }
 }
 
 void FeatureTracker::optimizePoseCeres(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers)
@@ -397,7 +532,7 @@ void FeatureTracker::optimizePoseCeres(const vector<Point3f> &pts_3d, const vect
   auto trans = T_c_w_pnp_.translation();
   // cout << "quat(xyzw): " << quat.coeffs() << '\n';
   // cout << "quat(x,y,z,w): " << quat.x() << " " << quat.y() << " " << quat.z() << " " << quat.w() << '\n';
-  double initial_pose[7] {quat.x(), quat.y(), quat.z(), quat.w(), trans.x(), trans.y(), trans.z()};
+  double initial_pose[7]{quat.x(), quat.y(), quat.z(), quat.w(), trans.x(), trans.y(), trans.z()};
 
   ceres::Problem problem;
   for (int i = 0; i < inliers.rows; ++i)
@@ -405,15 +540,13 @@ void FeatureTracker::optimizePoseCeres(const vector<Point3f> &pts_3d, const vect
     auto index = inliers.at<int>(i, 0);
 
     problem.AddResidualBlock(
-      new ceres::AutoDiffCostFunction<ReprojectionError, 2, 7>(
-        new ReprojectionError(
-          Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z},
-          Vector2d{pts_2d[index].x, pts_2d[index].y},
-          camera_model_.get())
-      ),
-      nullptr,
-      initial_pose
-    );
+        new ceres::AutoDiffCostFunction<ReprojectionError, 2, 7>(
+            new ReprojectionError(
+                Vector3d{pts_3d[index].x, pts_3d[index].y, pts_3d[index].z},
+                Vector2d{pts_2d[index].x, pts_2d[index].y},
+                camera_model_.get())),
+        nullptr,
+        initial_pose);
   }
 
   ceres::Solver::Options options;

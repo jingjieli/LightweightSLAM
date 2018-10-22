@@ -73,7 +73,8 @@ private:
   double findDepthForPixel(const KeyPoint &point);
   void addMapPoints();
 
-  void optimizePoseG2O(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers);
+  void optimizePoseG2O(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers, ErrorTerm error_term);
+  void optimizePoseAndPointsG2O(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers, ErrorTerm error_term);
   void optimizePoseCeres(const vector<Point3f> &pts_3d, const vector<Point2f> &pts_2d, const Mat &inliers);
 };
 
